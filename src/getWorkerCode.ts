@@ -44,7 +44,6 @@ var getMessageListener = (options) => {
     }
   };
 };
-self.onmessage = getMessageListener();
 function initializeDatabase(schema) {
   return new Promise((resolve, reject) => {
     try {
@@ -144,5 +143,6 @@ function isSerializable(value) {
 }
 
 
+self.onmessage = getMessageListener();
   `
   }

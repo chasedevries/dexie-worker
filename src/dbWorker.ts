@@ -56,7 +56,6 @@ const getMessageListener = (options?: MessageListenerOptions) => {
   }
 };
 
-self.onmessage = getMessageListener()
 function initializeDatabase(schema: any): Promise<void> {
   return new Promise((resolve, reject) => {
     try {

@@ -89,6 +89,7 @@ import esbuild from 'esbuild';
   bundledCode = `
 importScripts('https://cdn.jsdelivr.net/npm/dexie@3.2.2/dist/dexie.min.js');
   ${bundledCode}
+self.onmessage = getMessageListener();
   `
   // Write the final dexieWorker.js
   fs.writeFileSync(destDexieWorkerPath, bundledCode);
