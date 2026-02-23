@@ -1,8 +1,19 @@
-import Dexie, {DBCore, DBCoreMutateRequest, IndexSpec, ObservabilitySet} from 'dexie';
+import Dexie, {
+  DBCore,
+  DBCoreMutateRequest,
+  IndexSpec,
+  ObservabilitySet,
+} from "dexie";
 import getWorkerCode from "./getWorkerCode";
-import {ChainItem, DbSchema, DexieWorkerOptions, WorkerMessage, WorkerResponse} from './types/common'
-import {FALLBACK_METHODS} from "./const";
-import {supportsBroadcastChannel} from "./helpers";
+import {
+  ChainItem,
+  DbSchema,
+  DexieWorkerOptions,
+  WorkerMessage,
+  WorkerResponse,
+} from "./types/common";
+import { FALLBACK_METHODS } from "./const";
+import { supportsBroadcastChannel } from "./helpers";
 
 // Variables to manage the worker and message handling
 let worker: Worker | null = null;
@@ -20,34 +31,37 @@ const changeListeners: Array<(changedTables: Set<string>) => void> = [];
  * @param dbInstance The existing Dexie instance from which to extract the schema.
  * @param options
  */
-function initializeWorker<T extends Dexie>(dbInstance: T, options?: DexieWorkerOptions): Promise<Worker> {
+function initializeWorker<T extends Dexie>(
+  dbInstance: T,
+  options?: DexieWorkerOptions,
+): Promise<Worker> {
   if (!workerReady) {
     workerReady = new Promise<Worker>((resolve) => {
-      let workerURL = '';
+      let workerURL = "";
       if (!options?.worker) {
         if (options?.workerUrl) {
           workerURL = options.workerUrl!;
         } else {
           let workerCode = getWorkerCode();
           if (options?.dexieVersion) {
-            workerCode = workerCode.replace('3.2.2', options.dexieVersion!)
+            workerCode = workerCode.replace("3.2.2", options.dexieVersion!);
           }
-          const blob = new Blob([workerCode], {type: 'text/javascript'});
+          const blob = new Blob([workerCode], { type: "text/javascript" });
           workerURL = URL.createObjectURL(blob);
         }
       }
 
       const workerMessageHandler = (event: MessageEvent<WorkerResponse>) => {
-        const {id, result, error, type, changedTables} = event.data;
-        if (type === 'init') {
+        const { id, result, error, type, changedTables } = event.data;
+        if (type === "init") {
           resolve(worker!);
         } else {
           if (event.data.error) {
-            console.error(event.data.error)
+            console.error(event.data.error);
           }
           const pending = pendingMessages.get(id);
           if (pending) {
-            const {resolve: res, reject: rej} = pending;
+            const { resolve: res, reject: rej } = pending;
             pendingMessages.delete(id);
             if (error) {
               rej(new Error(error));
@@ -58,14 +72,13 @@ function initializeWorker<T extends Dexie>(dbInstance: T, options?: DexieWorkerO
         }
 
         // Existing change listener handling
-        if (type === 'changes' && changedTables) {
+        if (type === "changes" && changedTables) {
           const changedTablesSet = new Set<string>(changedTables);
           changeListeners.forEach((listener) => listener(changedTablesSet));
         }
-      }
-      worker = options?.worker ?? new Worker(workerURL, {type: 'classic'})
+      };
+      worker = options?.worker ?? new Worker(workerURL, { type: "classic" });
       worker.onmessage = workerMessageHandler;
-
 
       // Extract the schema from the existing Dexie instance
       const dbSchema = extractSchema(dbInstance);
@@ -76,7 +89,11 @@ function initializeWorker<T extends Dexie>(dbInstance: T, options?: DexieWorkerO
 
       // Initialize the worker with the database schema
       const initId = messageId++;
-      worker.postMessage({id: initId, type: 'init', schema: dbSchema} as WorkerMessage);
+      worker.postMessage({
+        id: initId,
+        type: "init",
+        schema: dbSchema,
+      } as WorkerMessage);
     });
   }
   return workerReady;
@@ -87,11 +104,14 @@ function initializeWorker<T extends Dexie>(dbInstance: T, options?: DexieWorkerO
  * @param dbInstance The Dexie instance used to extract the schema.
  * @returns A proxy that represents the Dexie database.
  */
-export default function createDexieProxy<T extends Dexie>(dbInstance: T, options?: DexieWorkerOptions): T {
+export default function createDexieProxy<T extends Dexie>(
+  dbInstance: T,
+  options?: DexieWorkerOptions,
+): T {
   // support for test environments
-  if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+  if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
     if (!options?.silenceWarning) {
-      console.warn('Dexie worker cannot be run in a non-browser environment.')
+      console.warn("Dexie worker cannot be run in a non-browser environment.");
     }
     return dbInstance;
   }
@@ -109,34 +129,40 @@ export default function createDexieProxy<T extends Dexie>(dbInstance: T, options
  */
 function createProxy<T>(
   chain: ChainItem[] = [],
-  tableAccessCallback?: (tableName: string) => void
+  tableAccessCallback?: (tableName: string) => void,
 ): T {
-  const proxyFunction = function () {
-  };
+  const proxyFunction = function () {};
   const proxy = new Proxy(proxyFunction, {
     get(_target, prop: string | symbol) {
-      if (prop.toString() === 'then') {
+      if (prop.toString() === "then") {
         const lastItem = chain[chain.length - 1];
         if (FALLBACK_METHODS.includes(lastItem.method as string)) {
-          return executeOnMainThread(chain)
+          return executeOnMainThread(chain);
         }
         const resultPromise = executeChain(chain);
         return resultPromise.then.bind(resultPromise);
       }
       if (tableAccessCallback && chain.length === 0) {
+        const accessedTable = prop.toString();
         // At the root level, the first property access might be a table name
-        tableAccessCallback(prop.toString());
+        console.log(`Accessing table: ${accessedTable}`);
+        tableAccessCallback(accessedTable);
       }
-      return createProxy(chain.concat({type: 'get', prop: prop.toString()}), tableAccessCallback);
+      return createProxy(
+        chain.concat({ type: "get", prop: prop.toString() }),
+        tableAccessCallback,
+      );
     },
     apply(_target, _thisArg, args: any[]) {
       const lastItem = chain[chain.length - 1];
       let newChain: ChainItem[];
-      if (lastItem && lastItem.type === 'get') {
+      if (lastItem && lastItem.type === "get") {
         const methodName = lastItem.prop!;
-        newChain = chain.slice(0, -1).concat({type: 'call', method: methodName, args});
+        newChain = chain
+          .slice(0, -1)
+          .concat({ type: "call", method: methodName, args });
       } else {
-        newChain = chain.concat({type: 'call', method: '<anonymous>', args});
+        newChain = chain.concat({ type: "call", method: "<anonymous>", args });
       }
       return createProxy(newChain, tableAccessCallback);
     },
@@ -152,13 +178,15 @@ function createProxy<T>(
  */
 async function executeChain(chain: ChainItem[]): Promise<any> {
   if (workerReady === undefined) {
-    throw new Error('You cannot call `useLiveQuery` before web worker initialization (call `getWebWorkerDB` first)')
+    throw new Error(
+      "You cannot call `useLiveQuery` before web worker initialization (call `getWebWorkerDB` first)",
+    );
   }
   const _worker: any = await workerReady;
   return new Promise((resolve, reject) => {
     const id = messageId++;
-    pendingMessages.set(id, {resolve, reject});
-    _worker!.postMessage({id, type: 'execute', chain} as WorkerMessage);
+    pendingMessages.set(id, { resolve, reject });
+    _worker!.postMessage({ id, type: "execute", chain } as WorkerMessage);
   });
 }
 
@@ -173,17 +201,17 @@ async function executeOnMainThread(chain: ChainItem[]): Promise<any> {
 
   for (const item of chain) {
     // If the current value is a promise, wait for it to resolve
-    if (current && typeof current.then === 'function') {
+    if (current && typeof current.then === "function") {
       current = await current;
     }
 
-    if (item.type === 'get') {
+    if (item.type === "get") {
       // Access the property specified by 'prop'
       current = current[item.prop!];
-    } else if (item.type === 'call') {
+    } else if (item.type === "call") {
       // Call the method specified by 'method' with arguments 'args'
       const func = current[item.method!];
-      if (typeof func !== 'function') {
+      if (typeof func !== "function") {
         throw new Error(`Property '${item.method}' is not a function`);
       }
 
@@ -191,7 +219,7 @@ async function executeOnMainThread(chain: ChainItem[]): Promise<any> {
       current = func.apply(current, item.args || []);
 
       // Optional: await the result if it's a promise
-      if (current && typeof current.then === 'function') {
+      if (current && typeof current.then === "function") {
         current = await current;
       }
     } else {
@@ -200,7 +228,7 @@ async function executeOnMainThread(chain: ChainItem[]): Promise<any> {
   }
 
   // Ensure the final result is resolved if it's a promise
-  if (current && typeof current.then === 'function') {
+  if (current && typeof current.then === "function") {
     current = await current;
   }
 
@@ -217,31 +245,33 @@ async function executeOnMainThread(chain: ChainItem[]): Promise<any> {
 function addChangeTrackingMiddleware(db: Dexie) {
   if (supportsBroadcastChannel()) {
     try {
-      Dexie.on('storagemutated', (changedParts: ObservabilitySet) => {
+      Dexie.on("storagemutated", (changedParts: ObservabilitySet) => {
         const changedTables = new Set<string>();
-        Object.keys(changedParts || {}).forEach(key => {
-          const splitKey = key.split('/');
+        Object.keys(changedParts || {}).forEach((key) => {
+          const splitKey = key.split("/");
           const tableName = splitKey[3];
           const dbName = splitKey[2];
           if (dbName === db.name) {
             changedTables.add(tableName);
           }
-        })
+        });
         if (changedTables.size > 0) {
           changeListeners.forEach((listener) => listener(changedTables));
         }
-      })
+      });
 
       return;
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (e) { /* storagemutated event is not supported */ }
+    } catch (e) {
+      /* storagemutated event is not supported */
+    }
   }
 
   // fallback method of listening to table changes
   db.use({
-    stack: 'dbcore',
-    name: 'ChangeTrackingMiddleware',
+    stack: "dbcore",
+    name: "ChangeTrackingMiddleware",
     create(downlevelDatabase: DBCore) {
       return {
         ...downlevelDatabase,
@@ -263,9 +293,8 @@ function addChangeTrackingMiddleware(db: Dexie) {
         },
       };
     },
-  })
+  });
 }
-
 
 /**
  * Extracts the database schema from the Dexie instance.
@@ -287,13 +316,32 @@ function extractSchema(dbInstance: Dexie): DbSchema {
     // Reconstruct the store definition including annotations
     const primKey = tableSchema.primKey.src;
 
-    // @ts-ignore
-    const indexes = tableSchema.indexes.filter(idx => !idx.foreignKey).map((idx: IndexSpec & { foreignKey: any }) => idx.src);
-    // @ts-ignore
-    const foreignKeys = tableSchema.indexes.filter(idx => idx.foreignKey).map((idx: IndexSpec & {
-      foreignKey: any
-    }) => idx.foreignKey && (idx.foreignKey.index + '->' + idx.foreignKey.targetTable + '.' + idx.foreignKey.targetIndex));
-    const storeDef = Array.from(new Set([primKey, ...indexes, ...foreignKeys])).join(',');
+    const tableIndexes = tableSchema.indexes as (IndexSpec & {
+      foreignKey: any;
+    })[];
+
+    const indexes = tableIndexes
+      .filter((idx) => !idx.foreignKey)
+      .map((idx: IndexSpec & { foreignKey: any }) => idx.src);
+
+    const foreignKeys = tableIndexes
+      .filter((idx) => idx.foreignKey)
+      .map(
+        (
+          idx: IndexSpec & {
+            foreignKey: any;
+          },
+        ) =>
+          idx.foreignKey &&
+          idx.foreignKey.index +
+            "->" +
+            idx.foreignKey.targetTable +
+            "." +
+            idx.foreignKey.targetIndex,
+      );
+    const storeDef = Array.from(
+      new Set([primKey, ...indexes, ...foreignKeys]),
+    ).join(",");
     schema.stores[tableName] = storeDef;
   }
 
@@ -304,7 +352,9 @@ function extractSchema(dbInstance: Dexie): DbSchema {
  * Adds a listener to be notified when database changes occur.
  * @param listener The function to call when changes occur.
  */
-function addChangeListener(listener: (changedTables: Set<string>) => void): void {
+function addChangeListener(
+  listener: (changedTables: Set<string>) => void,
+): void {
   changeListeners.push(listener);
 }
 
@@ -312,11 +362,13 @@ function addChangeListener(listener: (changedTables: Set<string>) => void): void
  * Removes a previously added change listener.
  * @param listener The listener function to remove.
  */
-function removeChangeListener(listener: (changedTables: Set<string>) => void): void {
+function removeChangeListener(
+  listener: (changedTables: Set<string>) => void,
+): void {
   const index = changeListeners.indexOf(listener);
   if (index !== -1) {
     changeListeners.splice(index, 1);
   }
 }
 
-export {createProxy, addChangeListener, removeChangeListener};
+export { createProxy, addChangeListener, removeChangeListener };
