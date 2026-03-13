@@ -1,0 +1,2 @@
+export default function useLiveQuery<TDatabase = any, T = any, TDefault = any>(queryCallback: (db: TDatabase) => Promise<T> | T, deps?: any[], initialValue?: TDefault): T | TDefault;
+//# sourceMappingURL=useLiveQuery.d.ts.map
